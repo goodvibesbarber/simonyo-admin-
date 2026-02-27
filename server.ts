@@ -4,6 +4,7 @@ import { Resend } from "resend";
 import path from "path";
 import http from "http";
 import { Server } from "socket.io";
+import cors from "cors";
 
 async function startServer() {
   const app = express();
@@ -11,6 +12,7 @@ async function startServer() {
   const io = new Server(server, { cors: { origin: "*" } });
   const PORT = 3000;
 
+  app.use(cors());
   app.use(express.json());
 
   // In-memory store for bookings and notifications
