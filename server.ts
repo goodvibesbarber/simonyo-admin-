@@ -22,6 +22,11 @@ async function startServer() {
     res.json(globalBookings);
   });
 
+  // Test endpoint to verify webhook is reachable
+  app.get("/api/test-webhook", (req, res) => {
+    res.json({ status: "Webhook endpoint is active and reachable!" });
+  });
+
   // API routes FIRST
   app.post("/api/bookings", async (req, res) => {
     let bookingData = req.body;
