@@ -1,84 +1,114 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import { Resend } from "resend";
+import path from "path";
+import http from "http";
+import { Server } from "socket.io";
 
 async function startServer() {
   const app = express();
+  const server = http.createServer(app);
+  const io = new Server(server, { cors: { origin: "*" } });
   const PORT = 3000;
 
   app.use(express.json());
 
+  // In-memory store for bookings and notifications
+  const globalBookings: any[] = [];
+
+  app.get("/api/bookings", (req, res) => {
+    res.json(globalBookings);
+  });
+
   // API routes FIRST
-  app.post("/api/send-confirmation", async (req, res) => {
-    const { email, name, serviceName, date, time, price } = req.body;
+  app.post("/api/bookings", async (req, res) => {
+    const bookingData = req.body;
 
-    if (!email || !name || !serviceName || !date || !time || !price) {
-      return res.status(400).json({ error: "Missing required fields" });
+    if (!bookingData.id) {
+      bookingData.id = Math.random().toString(36).substring(7);
     }
 
-    const resendApiKey = process.env.RESEND_API_KEY;
+    // Save to memory
+    globalBookings.push(bookingData);
     
-    if (!resendApiKey) {
-      console.warn("RESEND_API_KEY is not set. Simulating email sending.");
-      return res.json({ 
-        success: true, 
-        simulated: true,
-        message: `Simulated email sent to ${email} for ${serviceName} on ${date} at ${time}.` 
-      });
-    }
+    // Broadcast to all connected clients (Admin Dashboard)
+    io.emit("booking_added", bookingData);
 
-    try {
-      const resend = new Resend(resendApiKey);
-      
-      const { data, error } = await resend.emails.send({
-        from: "Good Vibes <onboarding@resend.dev>", // Using Resend's testing domain
-        to: email,
-        subject: "Booking Confirmation - Good Vibes",
-        html: `
-          <div style="font-family: sans-serif; max-w: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
-            <h1 style="color: #C5A059; text-transform: uppercase; letter-spacing: 1px;">Good Vibes</h1>
-            <h2 style="color: #1A1A1A;">Booking Confirmation</h2>
-            <p>Hi ${name},</p>
-            <p>Your appointment at Good Vibes has been confirmed. Here are the details:</p>
-            <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-              <tr>
-                <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #666;">Service</td>
-                <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">${serviceName}</td>
-              </tr>
-              <tr>
-                <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #666;">Date</td>
-                <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">${date}</td>
-              </tr>
-              <tr>
-                <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #666;">Time</td>
-                <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">${time}</td>
-              </tr>
-              <tr>
-                <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #666;">Price</td>
-                <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">$${price}</td>
-              </tr>
-            </table>
-            <div style="margin-top: 30px; padding: 20px; background-color: #f9f9f9; border-radius: 4px;">
-              <h3 style="margin-top: 0; color: #1A1A1A;">Location</h3>
-              <p style="margin-bottom: 0;">123 Luxury Ave, Suite 400<br>Beverly Hills, CA 90210</p>
-            </div>
-            <p style="margin-top: 30px; color: #888; font-size: 12px; text-align: center;">
-              If you need to cancel or reschedule, please contact us at least 24 hours in advance.
-            </p>
-          </div>
-        `,
-      });
+    // Send email if it's a real customer booking
+    if (bookingData.type === 'booking' && bookingData.customerEmail) {
+      const resendApiKey = process.env.RESEND_API_KEY;
+      if (resendApiKey) {
+        try {
+          const resend = new Resend(resendApiKey);
+          const { customerEmail, customerName, serviceName, date, startTime, price } = bookingData;
+          
+          // 1. Send confirmation to Customer
+          await resend.emails.send({
+            from: "Good Vibes <onboarding@resend.dev>",
+            to: customerEmail,
+            subject: "Booking Confirmation - Good Vibes",
+            html: `
+              <div style="font-family: sans-serif; max-w: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
+                <h1 style="color: #C5A059; text-transform: uppercase; letter-spacing: 1px;">Good Vibes</h1>
+                <h2 style="color: #1A1A1A;">Booking Confirmation</h2>
+                <p>Hi ${customerName},</p>
+                <p>Your appointment at Good Vibes has been confirmed. Here are the details:</p>
+                <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                  <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #666;">Service</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">${serviceName}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #666;">Date</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">${date}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #666;">Time</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">${startTime}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #666;">Price</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">$${price}</td>
+                  </tr>
+                </table>
+                <div style="margin-top: 30px; padding: 20px; background-color: #f9f9f9; border-radius: 4px;">
+                  <h3 style="margin-top: 0; color: #1A1A1A;">Location</h3>
+                  <p style="margin-bottom: 0;">123 Luxury Ave, Suite 400<br>Beverly Hills, CA 90210</p>
+                </div>
+              </div>
+            `,
+          });
 
-      if (error) {
-        console.error("Resend error:", error);
-        return res.status(500).json({ error: error.message });
+          // 2. Send notification to Admin (You)
+          await resend.emails.send({
+            from: "Good Vibes System <onboarding@resend.dev>",
+            to: "pasposip@gmail.com",
+            subject: `New Booking: ${customerName} - ${serviceName}`,
+            html: `
+              <div style="font-family: sans-serif; max-w: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
+                <h2 style="color: #1A1A1A;">New Appointment Received</h2>
+                <p>You have a new booking on your calendar:</p>
+                <ul style="list-style: none; padding: 0;">
+                  <li><strong>Customer:</strong> ${customerName}</li>
+                  <li><strong>Email:</strong> ${customerEmail}</li>
+                  <li><strong>Service:</strong> ${serviceName}</li>
+                  <li><strong>Date:</strong> ${date}</li>
+                  <li><strong>Time:</strong> ${startTime}</li>
+                  <li><strong>Price:</strong> $${price}</li>
+                </ul>
+                <p style="margin-top: 20px;">
+                  <a href="${process.env.APP_URL || '#'}" style="background-color: #1A1A1A; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">Open Admin Dashboard</a>
+                </p>
+              </div>
+            `,
+          });
+        } catch (error) {
+          console.error("Resend error:", error);
+        }
       }
-
-      res.json({ success: true, data });
-    } catch (error) {
-      console.error("Server error:", error);
-      res.status(500).json({ error: "Internal server error" });
     }
+
+    res.json({ success: true, booking: bookingData });
   });
 
   // Vite middleware for development
@@ -90,9 +120,12 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     app.use(express.static("dist"));
+    app.get("*", (req, res) => {
+      res.sendFile(path.resolve("dist/index.html"));
+    });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  server.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

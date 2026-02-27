@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar as CalendarIcon, Scissors, Bell, UserPlus, X } from 'lucide-react';
+import { Calendar as CalendarIcon, Scissors, Bell, UserPlus, X, Mail } from 'lucide-react';
+import { io } from 'socket.io-client';
 import { Booking, Service, AppNotification } from './types';
 import { defaultServices } from './data';
 import CalendarView from './components/CalendarView';
 import ServiceManagement from './components/ServiceManagement';
 import ClientSimulator from './components/ClientSimulator';
 import PublicBookingForm from './components/PublicBookingForm';
+import NotificationsView from './components/NotificationsView';
 import { cn } from './utils';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'calendar' | 'services' | 'simulator'>('calendar');
+  const [activeTab, setActiveTab] = useState<'calendar' | 'services' | 'simulator' | 'notifications'>('calendar');
   const [services, setServices] = useState<Service[]>(defaultServices);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -23,21 +25,68 @@ export default function App() {
     if (window.location.pathname === '/booking') {
       setIsPublicRoute(true);
     }
+
+    // Fetch initial bookings
+    fetch('/api/bookings')
+      .then(res => res.json())
+      .then(data => setBookings(data))
+      .catch(err => console.error("Failed to load bookings", err));
+
+    // Listen for real-time updates via WebSockets
+    const socket = io();
+    
+    socket.on('booking_added', (newBooking: any) => {
+      setBookings(prev => {
+        // Prevent duplicates
+        if (prev.some(b => b.id === newBooking.id)) return prev;
+        return [...prev, newBooking];
+      });
+      
+      // Add notification for admin
+      if (newBooking.type === 'booking') {
+        setNotifications(prev => {
+          // Prevent duplicate notifications
+          if (prev.some(n => n.details?.date === newBooking.date && n.details?.time === newBooking.startTime && n.details?.customerName === newBooking.customerName)) {
+            return prev;
+          }
+          
+          const newNotif: AppNotification = {
+            id: Math.random().toString(36).substring(7),
+            type: 'booking_received',
+            message: `New booking: ${newBooking.customerName}`,
+            details: {
+              customerName: newBooking.customerName,
+              customerEmail: newBooking.customerEmail,
+              serviceName: newBooking.serviceName || 'Unknown',
+              date: newBooking.date,
+              time: newBooking.startTime,
+              price: newBooking.price || 0
+            },
+            timestamp: new Date(),
+            read: false,
+          };
+          return [newNotif, ...prev];
+        });
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const handleAddBooking = (booking: Booking) => {
-    setBookings((prev) => [...prev, booking]);
-    
-    if (booking.type === 'booking') {
-      const newNotification: AppNotification = {
-        id: Math.random().toString(36).substring(7),
-        message: `New booking: ${booking.customerName} at ${booking.startTime}`,
-        timestamp: new Date(),
-        read: false,
-      };
-      setNotifications((prev) => [newNotification, ...prev]);
+  const handleAddBooking = async (booking: any) => {
+    // Send to server instead of just updating local state
+    try {
+      await fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(booking)
+      });
+    } catch (error) {
+      console.error("Failed to save booking", error);
     }
   };
 
@@ -80,6 +129,21 @@ export default function App() {
           >
             <CalendarIcon size={20} />
             <span>Daily Schedule</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('notifications')}
+            className={cn(
+              "w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors relative",
+              activeTab === 'notifications' ? "bg-blue-50 text-blue-700 font-medium" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+            )}
+          >
+            <Mail size={20} />
+            <span>Notifications</span>
+            {unreadCount > 0 && (
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 bg-blue-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                {unreadCount}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('services')}
@@ -166,6 +230,12 @@ export default function App() {
               services={services} 
               onUpdateBooking={handleUpdateBooking}
               onAddBlock={handleAddBooking}
+            />
+          )}
+          {activeTab === 'notifications' && (
+            <NotificationsView 
+              notifications={notifications} 
+              onMarkRead={markNotificationsRead} 
             />
           )}
           {activeTab === 'services' && (

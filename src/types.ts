@@ -20,7 +20,16 @@ export type Booking = {
 
 export type AppNotification = {
   id: string;
+  type: 'booking_received' | 'booking_cancelled';
   message: string;
+  details?: {
+    customerName: string;
+    customerEmail?: string;
+    serviceName: string;
+    date: string;
+    time: string;
+    price: number;
+  };
   timestamp: Date;
   read: boolean;
 };

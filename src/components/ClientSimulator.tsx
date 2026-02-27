@@ -46,33 +46,7 @@ export default function ClientSimulator({
       return;
     }
 
-    setIsSubmitting(true);
-
-    try {
-      // Send confirmation email via backend
-      const response = await fetch('/api/send-confirmation', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email,
-          name,
-          serviceName: service.name,
-          date,
-          time,
-          price: service.price
-        }),
-      });
-
-      if (!response.ok) {
-        console.error('Failed to send confirmation email');
-      }
-    } catch (error) {
-      console.error('Error sending confirmation email:', error);
-    }
-
-    onBook({
+    const payload = {
       id: Math.random().toString(36).substring(7),
       customerName: name,
       customerEmail: email,
@@ -81,8 +55,19 @@ export default function ClientSimulator({
       startTime: time,
       endTime,
       status: 'active',
-      type: 'booking'
-    });
+      type: 'booking',
+      serviceName: service.name,
+      price: service.price
+    };
+
+    setIsSubmitting(true);
+
+    try {
+      // Pass the full payload to the parent component which handles the server request
+      await onBook(payload as any);
+    } catch (error) {
+      console.error('Error sending booking:', error);
+    }
 
     setIsSubmitting(false);
     setSuccess(true);
