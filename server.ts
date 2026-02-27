@@ -5,6 +5,32 @@ import path from "path";
 import http from "http";
 import { Server } from "socket.io";
 import cors from "cors";
+import fs from "fs";
+
+const BOOKINGS_FILE = path.join(process.cwd(), "bookings.json");
+
+// Initialize file if it doesn't exist
+if (!fs.existsSync(BOOKINGS_FILE)) {
+  fs.writeFileSync(BOOKINGS_FILE, JSON.stringify([]));
+}
+
+function getBookings() {
+  try {
+    const data = fs.readFileSync(BOOKINGS_FILE, "utf-8");
+    return JSON.parse(data);
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveBooking(booking: any) {
+  const bookings = getBookings();
+  // Prevent duplicates
+  if (!bookings.some((b: any) => b.id === booking.id)) {
+    bookings.push(booking);
+    fs.writeFileSync(BOOKINGS_FILE, JSON.stringify(bookings, null, 2));
+  }
+}
 
 async function startServer() {
   const app = express();
@@ -12,14 +38,16 @@ async function startServer() {
   const io = new Server(server, { cors: { origin: "*" } });
   const PORT = 3000;
 
-  app.use(cors());
+  // Robust CORS for Vercel integration
+  app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Accept']
+  }));
   app.use(express.json());
 
-  // In-memory store for bookings and notifications
-  const globalBookings: any[] = [];
-
   app.get("/api/bookings", (req, res) => {
-    res.json(globalBookings);
+    res.json(getBookings());
   });
 
   // Test endpoint to verify webhook is reachable
@@ -68,8 +96,8 @@ async function startServer() {
       bookingData.id = Math.random().toString(36).substring(7);
     }
 
-    // Save to memory
-    globalBookings.push(bookingData);
+    // Save to persistent file storage
+    saveBooking(bookingData);
     
     // Broadcast to all connected clients (Admin Dashboard)
     io.emit("booking_added", bookingData);
