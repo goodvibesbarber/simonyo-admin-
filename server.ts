@@ -24,7 +24,40 @@ async function startServer() {
 
   // API routes FIRST
   app.post("/api/bookings", async (req, res) => {
-    const bookingData = req.body;
+    let bookingData = req.body;
+
+    // Handle FormSubmit Webhook Payload
+    if (bookingData.name && bookingData.service && !bookingData.customerName) {
+      let estimatedPrice = 35;
+      if (bookingData.service.includes('Student')) estimatedPrice = 25;
+      if (bookingData.service.includes('Beard')) estimatedPrice = 25;
+      if (bookingData.service.includes('Shave')) estimatedPrice = 30;
+      if (bookingData.service === 'Vibes Experience') estimatedPrice = 55;
+      if (bookingData.service === 'Good Vibes Experience') estimatedPrice = 70;
+      if (bookingData.service.includes('Wax')) estimatedPrice = 8;
+
+      const [timeStr, modifier] = (bookingData.time || "12:00 PM").split(' ');
+      let [hours, minutes] = timeStr.split(':').map(Number);
+      if (modifier === 'PM' && hours < 12) hours += 12;
+      if (modifier === 'AM' && hours === 12) hours = 0;
+      
+      const startTime24 = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+      const endTime24 = `${(hours + 1).toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+
+      bookingData = {
+        id: Math.random().toString(36).substring(7),
+        customerName: bookingData.name,
+        customerEmail: bookingData.email,
+        serviceId: 'external',
+        serviceName: bookingData.service,
+        date: bookingData.date,
+        startTime: startTime24,
+        endTime: endTime24,
+        status: 'active',
+        type: 'booking',
+        price: estimatedPrice
+      };
+    }
 
     if (!bookingData.id) {
       bookingData.id = Math.random().toString(36).substring(7);
